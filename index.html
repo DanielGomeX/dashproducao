@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Dashboard de Produção</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Arial, sans-serif;
+    background: #10141f;
+    color: #e7ebf5;
+  }
+  .app { max-width: 1500px; margin: 0 auto; padding: 20px 24px 60px; }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 20px; flex-wrap: wrap; gap: 12px;
+  }
+  h1 { font-size: 22px; font-weight: 700; margin: 0; }
+  .sub { color: #8b93ab; font-size: 13px; margin-top: 2px; }
+  .tabs { display: flex; gap: 6px; background: #1a2033; padding: 4px; border-radius: 10px; }
+  .tab {
+    padding: 8px 18px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600;
+    color: #8b93ab; user-select: none;
+  }
+  .tab.active { background: #3a63ff; color: #fff; }
+  .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  button.btn {
+    background: #1a2033; border: 1px solid #2b3450; color: #cfd6ea; padding: 9px 14px;
+    border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600;
+  }
+  button.btn:hover { background: #232a42; }
+  button.btn.primary { background: #3a63ff; border-color: #3a63ff; color: #fff; }
+  button.btn.primary:hover { background: #2f52dd; }
+  .status { font-size: 12px; color: #6bd08a; min-width: 90px; }
+
+  .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .kpi { background: #1a2033; border-radius: 12px; padding: 16px 18px; border: 1px solid #232a42; }
+  .kpi .label { font-size: 12px; color: #8b93ab; margin-bottom: 6px; }
+  .kpi .value { font-size: 26px; font-weight: 700; }
+  .kpi .delta { font-size: 12px; margin-top: 4px; }
+  .kpi .delta.up { color: #ef6a6a; }
+  .kpi .delta.down { color: #6bd08a; }
+  .kpi .delta.neutral { color: #8b93ab; }
+
+  .grid2 { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; margin-bottom: 16px; }
+  .card { background: #1a2033; border-radius: 12px; padding: 16px 18px; border: 1px solid #232a42; }
+  .card h3 { font-size: 14px; margin: 0 0 12px; font-weight: 700; color: #cfd6ea; }
+  .chart-wrap { position: relative; height: 260px; }
+  .chart-wrap.sm { height: 200px; }
+
+  .meter-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .meter-label { width: 130px; font-size: 12px; color: #cfd6ea; }
+  .meter-track { flex: 1; height: 8px; background: #232a42; border-radius: 4px; overflow: hidden; }
+  .meter-fill { height: 100%; border-radius: 4px; }
+  .meter-val { width: 90px; text-align: right; font-size: 12px; font-weight: 600; }
+
+  .toolbar {
+    display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap;
+  }
+  .toolbar label { font-size: 13px; color: #8b93ab; font-weight: 600; }
+  select.month-select {
+    background: #1a2033; border: 1px solid #2b3450; color: #e7ebf5;
+    padding: 8px 12px; border-radius: 8px; font-size: 13px; font-weight: 600;
+  }
+
+  .table-scroll { overflow-x: auto; border-radius: 12px; border: 1px solid #232a42; }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; min-width: 1300px; }
+  table.daily-table { min-width: 2200px; }
+  th, td { padding: 7px 8px; text-align: right; white-space: nowrap; }
+  th { background: #1a2033; color: #8b93ab; font-weight: 600; position: sticky; top: 0; }
+  td.rowlabel, th.rowlabel {
+    text-align: left; position: sticky; left: 0; background: #10141f; z-index: 2; min-width: 210px;
+    color: #e7ebf5; font-weight: 600;
+  }
+  th.rowlabel { background: #1a2033; z-index: 3; }
+  tbody tr:nth-child(odd) td:not(.rowlabel) { background: #161c2c; }
+  tbody tr:nth-child(even) td:not(.rowlabel) { background: #1a2033; }
+  tbody tr:nth-child(odd) td.rowlabel,
+  tbody tr:nth-child(even) td.rowlabel { background: #10141f; }
+  input.cell {
+    width: 68px; background: transparent; border: none; color: #e7ebf5; text-align: right;
+    font-size: 12.5px; font-family: inherit; padding: 3px 2px; border-radius: 4px;
+  }
+  input.cell.day { width: 56px; }
+  input.cell:focus { background: #0d2947; outline: 1px solid #3a63ff; }
+  input.cell:disabled {
+    color: #cfd6ea; opacity: 1; cursor: default;
+  }
+  td.total, td.meta { font-weight: 700; color: #ffd166; background: #20263a !important; }
+  .unit { font-size: 11px; color: #6b7391; font-weight: 400; }
+  .readonly-val { font-variant-numeric: tabular-nums; }
+
+  .footer-note { margin-top: 14px; font-size: 11.5px; color: #6b7391; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div>
+      <h1>Dashboard de Produção &amp; Consumo</h1>
+      <div class="sub">Acompanhamento diário — Vol. NFC, energia, água, GN, N2, soda e álcool por tonelada</div>
+    </div>
+    <div class="tabs">
+      <div class="tab active" data-view="dashboard">Dashboard</div>
+      <div class="tab" data-view="daily">Diário</div>
+      <div class="tab" data-view="table">Mensal / Metas</div>
+    </div>
+    <div class="actions">
+      <span class="status" id="statusMsg"></span>
+      <button class="btn" id="exportBtn" type="button">Exportar JSON</button>
+      <button class="btn" id="importBtn" type="button">Importar JSON</button>
+      <input type="file" id="importFile" accept="application/json,.json" class="hidden">
+      <button class="btn" id="resetBtn" type="button">Restaurar padrão</button>
+      <button class="btn primary" id="saveBtn" type="button">Salvar</button>
+    </div>
+  </header>
+
+  <div id="dashboardView">
+    <div class="kpis" id="kpiRow"></div>
+    <div class="grid2">
+      <div class="card">
+        <h3>Volume NFC produzido por mês (ton)</h3>
+        <div class="chart-wrap"><canvas id="volChart" role="img" aria-label="Gráfico de linha do volume NFC produzido por mês"></canvas></div>
+      </div>
+      <div class="card">
+        <h3>Energia (kWh/ton) — ARM vs TERM</h3>
+        <div class="chart-wrap"><canvas id="energyChart" role="img" aria-label="Gráfico de barras empilhadas de energia ARM e TERM por mês"></canvas></div>
+      </div>
+    </div>
+    <div class="grid2" style="grid-template-columns: 1fr 1fr;">
+      <div class="card">
+        <h3>Metas x Média realizada (ano)</h3>
+        <div id="meterArea"></div>
+      </div>
+      <div class="card">
+        <h3>GN, Água e N2 por tonelada (mensal)</h3>
+        <div class="chart-wrap"><canvas id="utilChart" role="img" aria-label="Gráfico de linhas de GN, água e N2 por tonelada"></canvas></div>
+      </div>
+    </div>
+    <div class="footer-note">Os totais mensais são calculados a partir dos dados diários. Edite na aba Diário; ajuste metas em Mensal / Metas. Os dados ficam salvos no navegador (localStorage) e podem ser exportados em JSON.</div>
+  </div>
+
+  <div id="dailyView" class="hidden">
+    <div class="toolbar">
+      <label for="monthSelect">Mês</label>
+      <select id="monthSelect" class="month-select"></select>
+    </div>
+    <div class="kpis" id="dailyKpiRow"></div>
+    <div class="grid2" style="grid-template-columns: 1fr 1fr;">
+      <div class="card">
+        <h3>Volume diário (ton)</h3>
+        <div class="chart-wrap sm"><canvas id="dailyVolChart" role="img" aria-label="Volume NFC diário do mês selecionado"></canvas></div>
+      </div>
+      <div class="card">
+        <h3>GN, Água e N2 diários</h3>
+        <div class="chart-wrap sm"><canvas id="dailyUtilChart" role="img" aria-label="GN, água e N2 diários do mês selecionado"></canvas></div>
+      </div>
+    </div>
+    <div class="table-scroll">
+      <table id="dailyTable" class="daily-table"></table>
+    </div>
+    <div class="footer-note">Edite as células diárias. Total/Média do mês agrega só os dias preenchidos (soma para volume, média para os demais). Autosave ao sair do campo.</div>
+  </div>
+
+  <div id="tableView" class="hidden">
+    <div class="table-scroll">
+      <table id="dataTable"></table>
+    </div>
+    <div class="footer-note">Valores mensais são somente leitura (agregados do diário). Edite apenas a coluna Meta. Use a aba Diário para alterar os números.</div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+const STORAGE_KEY = 'producao-dashboard-v2';
+const STORAGE_KEY_LEGACY = 'producao-dashboard-data';
+
+/** Year-month pairs for jul/26 … jun/27 (0-based month) */
+const MONTH_DEFS = [
+  { label: 'jul/26', y: 2026, m: 6 },
+  { label: 'ago/26', y: 2026, m: 7 },
+  { label: 'set/26', y: 2026, m: 8 },
+  { label: 'out/26', y: 2026, m: 9 },
+  { label: 'nov/26', y: 2026, m: 10 },
+  { label: 'dez/26', y: 2026, m: 11 },
+  { label: 'jan/27', y: 2027, m: 0 },
+  { label: 'fev/27', y: 2027, m: 1 },
+  { label: 'mar/27', y: 2027, m: 2 },
+  { label: 'abr/27', y: 2027, m: 3 },
+  { label: 'mai/27', y: 2027, m: 4 },
+  { label: 'jun/27', y: 2027, m: 5 },
+];
+const MONTHS = MONTH_DEFS.map(d => d.label);
+
+const SEED_ROWS = [
+  { key:'vol',      label:'Vol. NFC produzido', unit:'ton',     agg:'sum', values:[63400,74400,90000,93000,92200,79000,73100,61600,67518,54900,35700,29000], meta: 793018 },
+  { key:'en_arm',    label:'Energia Total ARM',  unit:'kWh/ton', agg:'avg', values:[24.16,24.41,57.89,42.44,90.67,107.35,52.77,62.24,67.54,94.86,28.33,24.20], meta: 27.82 },
+  { key:'en_term',   label:'Energia Total TERM', unit:'kWh/ton', agg:'avg', values:[5.96,5.96,6.02,6.17,6.25,6.25,7.98,7.98,7.98,8.73,10.20,10.20], meta: 7.13 },
+  { key:'en_totvar', label:'Energia Total Variável', unit:'kWh/ton', agg:'avg', values:[18.81,20.76,23.90,24.90,25.21,24.71,24.71,25.73,25.73,24.71,24.98,24.20], meta: 24.14 },
+  { key:'en_armvar', label:'Energia ARM Variável', unit:'kWh/ton', agg:'avg', values:[18.01,19.17,21.08,22.22,22.48,23.51,22.99,22.90,24.71,24.98,24.20,25.89], meta: 25.89 },
+  { key:'en_termvar',label:'Energia TERM Variável', unit:'kWh/ton', agg:'avg', values:[0.80,1.41,2.44,2.66,2.73,2.14,2.09,2.22,2.05,2.09,2.15,2.22], meta: 2.22 },
+  { key:'gn',        label:'GN', unit:'m³/ton', agg:'avg', values:[3950,3856,3760,3700,3700,3720,3720,3720,3720,4080,4520,6380], meta: 3.90 },
+  { key:'agua',      label:'Água', unit:'m³/ton', agg:'avg', values:[0.185,0.175,0.170,0.170,0.160,0.168,0.185,0.183,0.183,0.205,0.209,0.209], meta: 0.177 },
+  { key:'n2',        label:'N2', unit:'m³/ton', agg:'avg', values:[1.128,1.128,1.120,1.120,1.110,1.115,1.120,1.130,1.140,1.150,1.160,1.170], meta: 1.15 },
+  { key:'soda',      label:'Soda', unit:'ton/ton', agg:'avg', values:[0.015,0.015,0.015,0.015,0.015,0.015,0.062,0.062,0.062,0.062,0.062,0.062], meta: 0.067 },
+  { key:'alcool',    label:'Álcool', unit:'L/ton', agg:'avg', values:[0.015,0.015,0.015,0.015,0.015,0.015,1.10,1.10,1.10,1.10,1.10,1.10], meta: 1.17 },
+];
+
+let state = null;
+let charts = {};
+let selectedMonth = 0;
+let currentView = 'dashboard';
+
+function pad2(n){ return String(n).padStart(2, '0'); }
+
+function isoDay(y, m0, day){
+  return `${y}-${pad2(m0 + 1)}-${pad2(day)}`;
+}
+
+function daysInMonth(y, m0){
+  return new Date(y, m0 + 1, 0).getDate();
+}
+
+function dayKeysForMonth(mi){
+  const def = MONTH_DEFS[mi];
+  const n = daysInMonth(def.y, def.m);
+  const keys = [];
+  for(let d = 1; d <= n; d++) keys.push(isoDay(def.y, def.m, d));
+  return keys;
+}
+
+function valuesToDaily(values){
+  const daily = {};
+  MONTH_DEFS.forEach((def, i) => {
+    const v = values[i];
+    if(v !== undefined && v !== null && v !== '' && !isNaN(Number(v))){
+      daily[isoDay(def.y, def.m, 1)] = Number(v);
+    }
+  });
+  return daily;
+}
+
+function buildDefaultData(){
+  return {
+    version: 2,
+    rows: SEED_ROWS.map(r => ({
+      key: r.key,
+      label: r.label,
+      unit: r.unit,
+      agg: r.agg,
+      meta: r.meta,
+      daily: valuesToDaily(r.values),
+    })),
+  };
+}
+
+const DEFAULT_DATA = buildDefaultData();
+
+function migrateToV2(raw){
+  if(!raw || !Array.isArray(raw.rows)) return null;
+  if(raw.version === 2 && raw.rows.every(r => r.daily && typeof r.daily === 'object')){
+    return {
+      version: 2,
+      rows: raw.rows.map(r => ({
+        key: r.key,
+        label: r.label,
+        unit: r.unit,
+        agg: r.agg || 'avg',
+        meta: Number(r.meta) || 0,
+        daily: { ...r.daily },
+      })),
+    };
+  }
+  // v1: monthly values[]
+  return {
+    version: 2,
+    rows: raw.rows.map(r => ({
+      key: r.key,
+      label: r.label,
+      unit: r.unit,
+      agg: r.agg || 'avg',
+      meta: Number(r.meta) || 0,
+      daily: valuesToDaily(r.values || []),
+    })),
+  };
+}
+
+function filledDaysInMonth(row, mi){
+  const keys = dayKeysForMonth(mi);
+  const vals = [];
+  keys.forEach(k => {
+    const v = row.daily[k];
+    if(v !== undefined && v !== null && v !== '' && !isNaN(Number(v))){
+      vals.push(Number(v));
+    }
+  });
+  return vals;
+}
+
+function aggregateMonth(row, mi){
+  const vals = filledDaysInMonth(row, mi);
+  if(!vals.length) return null;
+  if(row.agg === 'sum') return vals.reduce((a,b)=>a+b, 0);
+  return vals.reduce((a,b)=>a+b, 0) / vals.length;
+}
+
+function monthValues(row){
+  return MONTH_DEFS.map((_, i) => {
+    const v = aggregateMonth(row, i);
+    return v === null ? 0 : v;
+  });
+}
+
+function computeTotal(row){
+  const monthly = MONTH_DEFS.map((_, i) => aggregateMonth(row, i)).filter(v => v !== null);
+  if(!monthly.length) return 0;
+  if(row.agg === 'sum') return monthly.reduce((a,b)=>a+b, 0);
+  return monthly.reduce((a,b)=>a+b, 0) / monthly.length;
+}
+
+function fmt(n, decimals){
+  if(n === null || n === undefined || isNaN(n)) return '-';
+  const d = decimals !== undefined ? decimals : (Math.abs(n) >= 100 ? 0 : (Math.abs(n) >= 10 ? 2 : 3));
+  return Number(n).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+
+function setStatus(msg, ok){
+  const el = document.getElementById('statusMsg');
+  el.textContent = msg;
+  el.style.color = ok ? '#6bd08a' : '#ef6a6a';
+  clearTimeout(setStatus._t);
+  setStatus._t = setTimeout(()=>{ el.textContent = ''; }, 2800);
+}
+
+/* ---- Persistência: localStorage + espelho window.storage ---- */
+async function readWindowStorage(key){
+  if(!window.storage || typeof window.storage.get !== 'function') return null;
+  try{
+    const res = await window.storage.get(key, false);
+    if(res && res.value) return res.value;
+  }catch(e){}
+  return null;
+}
+
+async function writeWindowStorage(key, value){
+  if(!window.storage || typeof window.storage.set !== 'function') return false;
+  try{
+    await window.storage.set(key, value, false);
+    return true;
+  }catch(e){
+    return false;
+  }
+}
+
+function readLocal(key){
+  try{
+    return localStorage.getItem(key);
+  }catch(e){
+    return null;
+  }
+}
+
+function writeLocal(key, value){
+  try{
+    localStorage.setItem(key, value);
+    return true;
+  }catch(e){
+    return false;
+  }
+}
+
+async function loadState(){
+  let rawStr = readLocal(STORAGE_KEY);
+  let source = 'local';
+
+  if(!rawStr){
+    rawStr = await readWindowStorage(STORAGE_KEY);
+    if(rawStr) source = 'mirror';
+  }
+  if(!rawStr){
+    rawStr = readLocal(STORAGE_KEY_LEGACY);
+    if(rawStr) source = 'legacy-local';
+  }
+  if(!rawStr){
+    rawStr = await readWindowStorage(STORAGE_KEY_LEGACY);
+    if(rawStr) source = 'legacy-mirror';
+  }
+
+  if(rawStr){
+    try{
+      const parsed = JSON.parse(rawStr);
+      const migrated = migrateToV2(parsed);
+      if(migrated){
+        state = migrated;
+        await persist(false);
+        setStatus(source.startsWith('legacy') ? 'Migrado p/ v2' : 'Dados carregados', true);
+        return;
+      }
+    }catch(e){
+      setStatus('JSON inválido, usando padrão', false);
+    }
+  }
+
+  state = JSON.parse(JSON.stringify(DEFAULT_DATA));
+  setStatus('Dados padrão', true);
+}
+
+async function persist(showStatus = true){
+  const payload = JSON.stringify(state);
+  const okLocal = writeLocal(STORAGE_KEY);
+  const okMirror = await writeWindowStorage(STORAGE_KEY, payload);
+
+  if(!showStatus) return;
+
+  if(okLocal){
+    setStatus(okMirror ? 'Salvo' : 'Salvo (local)', true);
+  }else{
+    setStatus('Falha ao salvar no navegador', false);
+  }
+}
+
+function exportJson(){
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `producao-dashboard-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  setStatus('JSON exportado', true);
+}
+
+function importJsonFile(file){
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try{
+      const parsed = JSON.parse(reader.result);
+      const migrated = migrateToV2(parsed);
+      if(!migrated || !migrated.rows.length){
+        setStatus('Arquivo inválido', false);
+        return;
+      }
+      state = migrated;
+      await persist();
+      buildMonthSelect();
+      buildTable();
+      buildDailyView();
+      refreshAll();
+      setStatus('Importado', true);
+    }catch(e){
+      setStatus('Falha ao importar', false);
+    }
+  };
+  reader.readAsText(file);
+}
+
+function findRow(key){ return state.rows.find(r => r.key === key); }
+
+function buildMonthSelect(){
+  const sel = document.getElementById('monthSelect');
+  sel.innerHTML = MONTH_DEFS.map((d, i) =>
+    `<option value="${i}" ${i === selectedMonth ? 'selected' : ''}>${d.label}</option>`
+  ).join('');
+}
+
+/* ---- Tabela mensal (somente leitura + meta editável) ---- */
+function buildTable(){
+  const table = document.getElementById('dataTable');
+  let head = '<thead><tr><th class="rowlabel">Indicador</th>';
+  MONTHS.forEach(m => head += `<th>${m}</th>`);
+  head += '<th>Total/Média</th><th>Meta</th></tr></thead>';
+  let body = '<tbody>';
+  state.rows.forEach((row, ri) => {
+    body += `<tr><td class="rowlabel">${row.label} <span class="unit">(${row.unit})</span></td>`;
+    MONTH_DEFS.forEach((_, mi) => {
+      const v = aggregateMonth(row, mi);
+      body += `<td class="readonly-val">${v === null ? '—' : fmt(v)}</td>`;
+    });
+    body += `<td class="total">${fmt(computeTotal(row))}</td>`;
+    body += `<td class="meta"><input class="cell" data-row="${ri}" data-col="meta" type="number" step="any" value="${row.meta}" style="color:#ffd166;font-weight:700;width:72px;"></td>`;
+    body += '</tr>';
+  });
+  body += '</tbody>';
+  table.innerHTML = head + body;
+
+  table.querySelectorAll('input.cell').forEach(inp => {
+    inp.addEventListener('change', async (e) => {
+      const ri = Number(e.target.dataset.row);
+      state.rows[ri].meta = Number(e.target.value);
+      refreshAll();
+      if(currentView === 'daily') buildDailyView();
+      await persist();
+    });
+  });
+}
+
+/* ---- Aba Diário ---- */
+function buildDailyKpis(){
+  const vol = findRow('vol');
+  const enArm = findRow('en_arm');
+  const gn = findRow('gn');
+  const keys = dayKeysForMonth(selectedMonth);
+  const volVals = filledDaysInMonth(vol, selectedMonth);
+  const monthVol = aggregateMonth(vol, selectedMonth);
+  const daysFilled = volVals.length;
+
+  let lastDayVal = null;
+  let lastDayLabel = '—';
+  for(let i = keys.length - 1; i >= 0; i--){
+    const v = vol.daily[keys[i]];
+    if(v !== undefined && v !== null && v !== '' && !isNaN(Number(v))){
+      lastDayVal = Number(v);
+      lastDayLabel = keys[i].slice(8);
+      break;
+    }
+  }
+
+  const items = [
+    { label: `Volume do mês (${MONTHS[selectedMonth]})`, value: monthVol === null ? '—' : fmt(monthVol, 0) + ' ton', delta: null },
+    { label: 'Dias preenchidos (volume)', value: String(daysFilled) + ' / ' + keys.length, delta: null },
+    { label: `Último dia c/ dado (dia ${lastDayLabel})`, value: lastDayVal === null ? '—' : fmt(lastDayVal, 0) + ' ton', delta: null },
+    { label: 'Energia ARM (média do mês)', value: (()=>{ const v = aggregateMonth(enArm, selectedMonth); return v === null ? '—' : fmt(v); })(), meta: enArm.meta },
+    { label: 'GN (média do mês)', value: (()=>{ const v = aggregateMonth(gn, selectedMonth); return v === null ? '—' : fmt(v); })(), meta: gn.meta },
+  ];
+
+  document.getElementById('dailyKpiRow').innerHTML = items.map(it => `
+    <div class="kpi">
+      <div class="label">${it.label}</div>
+      <div class="value">${it.value}</div>
+      ${it.meta !== undefined ? `<div class="delta neutral">meta: ${fmt(it.meta)}</div>` : ''}
+    </div>
+  `).join('');
+}
+
+function buildDailyTable(){
+  const table = document.getElementById('dailyTable');
+  const keys = dayKeysForMonth(selectedMonth);
+  let head = '<thead><tr><th class="rowlabel">Indicador</th>';
+  keys.forEach(k => head += `<th>${Number(k.slice(8))}</th>`);
+  head += '<th>Total/Média</th><th>Meta</th></tr></thead><tbody>';
+
+  state.rows.forEach((row, ri) => {
+    head += `<tr><td class="rowlabel">${row.label} <span class="unit">(${row.unit})</span></td>`;
+    keys.forEach(k => {
+      const v = row.daily[k];
+      const valAttr = (v !== undefined && v !== null && v !== '') ? ` value="${v}"` : '';
+      head += `<td><input class="cell day" data-row="${ri}" data-day="${k}" type="number" step="any"${valAttr}></td>`;
+    });
+    const agg = aggregateMonth(row, selectedMonth);
+    head += `<td class="total">${agg === null ? '—' : fmt(agg)}</td>`;
+    head += `<td class="meta">${fmt(row.meta)}</td></tr>`;
+  });
+  head += '</tbody>';
+  table.innerHTML = head;
+
+  table.querySelectorAll('input.cell.day').forEach(inp => {
+    inp.addEventListener('change', async (e) => {
+      const ri = Number(e.target.dataset.row);
+      const day = e.target.dataset.day;
+      const raw = e.target.value.trim();
+      if(raw === '' || isNaN(Number(raw))){
+        delete state.rows[ri].daily[day];
+        e.target.value = '';
+      }else{
+        state.rows[ri].daily[day] = Number(raw);
+      }
+      buildTable();
+      buildDailyView();
+      refreshAll();
+      await persist();
+    });
+  });
+}
+
+function buildDailyCharts(){
+  const keys = dayKeysForMonth(selectedMonth);
+  const labels = keys.map(k => String(Number(k.slice(8))));
+  const vol = findRow('vol');
+  const gn = findRow('gn');
+  const agua = findRow('agua');
+  const n2 = findRow('n2');
+
+  const series = (row) => keys.map(k => {
+    const v = row.daily[k];
+    return (v === undefined || v === null || v === '' || isNaN(Number(v))) ? null : Number(v);
+  });
+
+  destroyChart('dailyVol');
+  charts.dailyVol = new Chart(document.getElementById('dailyVolChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Volume (ton)',
+        data: series(vol),
+        borderColor: '#3a63ff',
+        backgroundColor: 'rgba(58,99,255,0.12)',
+        fill: true,
+        tension: 0.25,
+        pointRadius: 2,
+        borderWidth: 2,
+        spanGaps: false,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color:'#8b93ab', maxRotation: 0, autoSkip: true, maxTicksLimit: 16 }, grid: { display:false } },
+        y: { ticks: { color:'#8b93ab' }, grid: { color:'#232a42' } }
+      }
+    }
+  });
+
+  destroyChart('dailyUtil');
+  charts.dailyUtil = new Chart(document.getElementById('dailyUtilChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        { label:'GN (m³/ton)', data: series(gn), borderColor:'#eb6834', backgroundColor:'transparent', tension:0.25, pointRadius:1.5, borderWidth:2, spanGaps:false },
+        { label:'Água ×1000', data: series(agua).map(v => v === null ? null : v * 1000), borderColor:'#1baf7a', backgroundColor:'transparent', tension:0.25, pointRadius:1.5, borderWidth:2, borderDash:[5,3], spanGaps:false },
+        { label:'N2 ×1000', data: series(n2).map(v => v === null ? null : v * 1000), borderColor:'#e87ba4', backgroundColor:'transparent', tension:0.25, pointRadius:1.5, borderWidth:2, borderDash:[2,2], spanGaps:false },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display:true, labels:{ color:'#cfd6ea', boxWidth:12, font:{size:10} } } },
+      scales: {
+        x: { ticks: { color:'#8b93ab', maxRotation: 0, autoSkip: true, maxTicksLimit: 16 }, grid: { display:false } },
+        y: { ticks: { color:'#8b93ab' }, grid: { color:'#232a42' } }
+      }
+    }
+  });
+}
+
+function buildDailyView(){
+  buildDailyKpis();
+  buildDailyTable();
+  buildDailyCharts();
+}
+
+function buildKpis(){
+  const vol = findRow('vol');
+  const enArm = findRow('en_arm');
+  const enTerm = findRow('en_term');
+  const gn = findRow('gn');
+  const values = monthValues(vol);
+
+  let lastIdx = values.length - 1;
+  for(let i = values.length - 1; i >= 0; i--){
+    if(aggregateMonth(vol, i) !== null){ lastIdx = i; break; }
+  }
+  const cur = aggregateMonth(vol, lastIdx);
+  const prev = lastIdx > 0 ? aggregateMonth(vol, lastIdx - 1) : null;
+  const deltaPct = (prev && cur !== null) ? ((cur - prev) / prev * 100) : 0;
+
+  const items = [
+    { label:'Volume total produzido (ton)', value: fmt(computeTotal(vol), 0), delta: null },
+    { label:`Último mês c/ dado (${MONTHS[lastIdx]})`, value: (cur === null ? '—' : fmt(cur, 0) + ' ton'), delta: (prev && cur !== null) ? deltaPct : null, deltaDir: deltaPct >= 0 ? 'up' : 'down' },
+    { label:'Energia ARM média (kWh/ton)', value: fmt(computeTotal(enArm)), delta: null, meta: enArm.meta },
+    { label:'Energia TERM média (kWh/ton)', value: fmt(computeTotal(enTerm)), delta: null, meta: enTerm.meta },
+    { label:'GN médio (m³/ton)', value: fmt(computeTotal(gn)), delta: null, meta: gn.meta },
+  ];
+  document.getElementById('kpiRow').innerHTML = items.map(it => `
+    <div class="kpi">
+      <div class="label">${it.label}</div>
+      <div class="value">${it.value}</div>
+      ${it.delta !== null ? `<div class="delta ${it.deltaDir==='up'?'up':'down'}">${it.delta>=0?'+':''}${fmt(it.delta,1)}% vs mês anterior</div>` : (it.meta !== undefined ? `<div class="delta neutral">meta: ${fmt(it.meta)}</div>` : '')}
+    </div>
+  `).join('');
+}
+
+function buildMeters(){
+  const target = document.getElementById('meterArea');
+  const rows = state.rows.filter(r => r.key !== 'vol');
+  target.innerHTML = rows.map(r => {
+    const actual = computeTotal(r);
+    const meta = Number(r.meta) || 0;
+    const ratio = meta > 0 ? Math.min(1.4, actual / meta) : 0;
+    const over = actual > meta;
+    const color = over ? '#ef6a6a' : '#6bd08a';
+    const pct = Math.min(100, ratio * 100);
+    return `
+      <div class="meter-row">
+        <div class="meter-label">${r.label}</div>
+        <div class="meter-track"><div class="meter-fill" style="width:${pct}%; background:${color};"></div></div>
+        <div class="meter-val" style="color:${color}">${fmt(actual)} / ${fmt(meta)}</div>
+      </div>`;
+  }).join('');
+}
+
+function destroyChart(id){
+  if(charts[id]){ charts[id].destroy(); delete charts[id]; }
+}
+
+function buildCharts(){
+  const vol = findRow('vol');
+  const enArm = findRow('en_arm');
+  const enTerm = findRow('en_term');
+  const gn = findRow('gn');
+  const agua = findRow('agua');
+  const n2 = findRow('n2');
+
+  const volData = MONTH_DEFS.map((_, i) => aggregateMonth(vol, i));
+  const armData = MONTH_DEFS.map((_, i) => aggregateMonth(enArm, i));
+  const termData = MONTH_DEFS.map((_, i) => aggregateMonth(enTerm, i));
+  const gnData = MONTH_DEFS.map((_, i) => aggregateMonth(gn, i));
+  const aguaData = MONTH_DEFS.map((_, i) => { const v = aggregateMonth(agua, i); return v === null ? null : v * 1000; });
+  const n2Data = MONTH_DEFS.map((_, i) => { const v = aggregateMonth(n2, i); return v === null ? null : v * 1000; });
+
+  destroyChart('vol');
+  charts.vol = new Chart(document.getElementById('volChart'), {
+    type: 'line',
+    data: {
+      labels: MONTHS,
+      datasets: [{
+        label: 'Volume (ton)',
+        data: volData,
+        borderColor: '#3a63ff',
+        backgroundColor: 'rgba(58,99,255,0.12)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: 3,
+        borderWidth: 2,
+        spanGaps: false,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color:'#8b93ab' }, grid: { display:false } },
+        y: { ticks: { color:'#8b93ab' }, grid: { color:'#232a42' } }
+      }
+    }
+  });
+
+  destroyChart('energy');
+  charts.energy = new Chart(document.getElementById('energyChart'), {
+    type: 'bar',
+    data: {
+      labels: MONTHS,
+      datasets: [
+        { label:'ARM', data: armData.map(v => v === null ? 0 : v), backgroundColor:'#3a63ff', stack:'e' },
+        { label:'TERM', data: termData.map(v => v === null ? 0 : v), backgroundColor:'#eda100', stack:'e' },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: true, labels:{ color:'#cfd6ea', boxWidth:12 } } },
+      scales: {
+        x: { stacked:true, ticks:{ color:'#8b93ab' }, grid:{ display:false } },
+        y: { stacked:true, ticks:{ color:'#8b93ab' }, grid:{ color:'#232a42' } }
+      }
+    }
+  });
+
+  destroyChart('util');
+  charts.util = new Chart(document.getElementById('utilChart'), {
+    type: 'line',
+    data: {
+      labels: MONTHS,
+      datasets: [
+        { label:'GN (m³/ton)', data: gnData, borderColor:'#eb6834', backgroundColor:'transparent', tension:0.3, pointRadius:2, borderWidth:2, spanGaps:false },
+        { label:'Água (m³/ton) x1000', data: aguaData, borderColor:'#1baf7a', backgroundColor:'transparent', tension:0.3, pointRadius:2, borderWidth:2, borderDash:[5,3], spanGaps:false },
+        { label:'N2 (m³/ton) x1000', data: n2Data, borderColor:'#e87ba4', backgroundColor:'transparent', tension:0.3, pointRadius:2, borderWidth:2, borderDash:[2,2], spanGaps:false },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display:true, labels:{ color:'#cfd6ea', boxWidth:12, font:{size:10} } } },
+      scales: {
+        x: { ticks:{ color:'#8b93ab' }, grid:{ display:false } },
+        y: { ticks:{ color:'#8b93ab' }, grid:{ color:'#232a42' } }
+      }
+    }
+  });
+}
+
+function refreshAll(){
+  buildKpis();
+  buildMeters();
+  buildCharts();
+}
+
+function switchView(view){
+  currentView = view;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === view));
+  document.getElementById('dashboardView').classList.toggle('hidden', view !== 'dashboard');
+  document.getElementById('dailyView').classList.toggle('hidden', view !== 'daily');
+  document.getElementById('tableView').classList.toggle('hidden', view !== 'table');
+  if(view === 'dashboard') refreshAll();
+  if(view === 'daily') buildDailyView();
+  if(view === 'table') buildTable();
+}
+
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => switchView(t.dataset.view)));
+document.getElementById('saveBtn').addEventListener('click', () => persist());
+document.getElementById('exportBtn').addEventListener('click', exportJson);
+document.getElementById('importBtn').addEventListener('click', () => document.getElementById('importFile').click());
+document.getElementById('importFile').addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0];
+  if(f) importJsonFile(f);
+  e.target.value = '';
+});
+document.getElementById('monthSelect').addEventListener('change', (e) => {
+  selectedMonth = Number(e.target.value);
+  buildDailyView();
+});
+document.getElementById('resetBtn').addEventListener('click', async () => {
+  if(!confirm('Restaurar os dados padrão? Isso substituirá os valores atuais.')) return;
+  state = JSON.parse(JSON.stringify(DEFAULT_DATA));
+  selectedMonth = 0;
+  buildMonthSelect();
+  buildTable();
+  buildDailyView();
+  refreshAll();
+  await persist();
+});
+
+(async function init(){
+  await loadState();
+  buildMonthSelect();
+  buildTable();
+  refreshAll();
+})();
+</script>
+</body>
+</html>
