@@ -24,8 +24,11 @@
 //   Compartilhado (se as keys forem iguais):
 //     WAY2_KEY
 //
-//   Firebase Admin:
-//     FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY
+//   Firebase Admin (obrigatório para gravar no Firestore):
+//     FIREBASE_PROJECT_ID          (ex.: producao-f843f)
+//     FIREBASE_CLIENT_EMAIL        (ex.: firebase-adminsdk-...@....iam.gserviceaccount.com)
+//     FIREBASE_PRIVATE_KEY         (chave com \n; cole entre aspas na Vercel)
+//   Alternativa: FIREBASE_SERVICE_ACCOUNT_JSON = JSON inteiro da service account
 //
 // Uso:
 //   GET  /api/sync-energy
@@ -36,14 +39,116 @@ const admin = require('firebase-admin');
 
 const WAY2_BASE = (process.env.WAY2_API_BASE || 'https://api-prod.way2.com.br').replace(/\/$/, '');
 
+/**
+ * Normaliza private key PEM vinda de env vars da Vercel
+ * (aspas extras, \\n, \n literal, espaços no lugar de quebras, etc.).
+ */
+function normalizePrivateKey(raw) {
+  if (!raw || typeof raw !== 'string') return '';
+
+  let key = raw.trim();
+
+  // Remove aspas externas ("..." ou '...')
+  if (
+    (key.startsWith('"') && key.endsWith('"')) ||
+    (key.startsWith("'") && key.endsWith("'"))
+  ) {
+    key = key.slice(1, -1).trim();
+  }
+
+  // Desfaz escapes comuns: \\n -> \n, depois \n literal -> newline real
+  key = key
+    .replace(/\\\\n/g, '\n')
+    .replace(/\\n/g, '\n')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+
+  // Se a chave veio numa linha só (espaços no lugar de newlines), reconstrói o PEM
+  if (!key.includes('\n') && /BEGIN [A-Z ]*PRIVATE KEY/.test(key)) {
+    key = key
+      .replace(/-----BEGIN ([A-Z ]*PRIVATE KEY)-----/, '-----BEGIN $1-----\n')
+      .replace(/-----END ([A-Z ]*PRIVATE KEY)-----/, '\n-----END $1-----')
+      .replace(/-----BEGIN ([A-Z ]*PRIVATE KEY)-----\n\s+/, '-----BEGIN $1-----\n')
+      .replace(/\s+\n-----END/, '\n-----END');
+
+    const begin = key.match(/-----BEGIN [A-Z ]*PRIVATE KEY-----/);
+    const end = key.match(/-----END [A-Z ]*PRIVATE KEY-----/);
+    if (begin && end) {
+      const startIdx = key.indexOf(begin[0]) + begin[0].length;
+      const endIdx = key.indexOf(end[0]);
+      const body = key.slice(startIdx, endIdx).replace(/\s+/g, '');
+      const lines = body.match(/.{1,64}/g) || [];
+      key = `${begin[0]}\n${lines.join('\n')}\n${end[0]}\n`;
+    }
+  }
+
+  // Garante newline final
+  if (key && !key.endsWith('\n')) key += '\n';
+
+  if (!/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(key) || !/-----END [A-Z ]*PRIVATE KEY-----/.test(key)) {
+    throw new Error(
+      'FIREBASE_PRIVATE_KEY inválida: precisa ser PEM com BEGIN/END PRIVATE KEY. ' +
+      'Na Vercel, cole a chave entre aspas duplas e mantenha os \\n, ' +
+      'ou use FIREBASE_SERVICE_ACCOUNT_JSON com o JSON completo da service account.'
+    );
+  }
+
+  return key;
+}
+
+function resolveFirebaseCredential() {
+  const jsonRaw = process.env.FIREBASE_SERVICE_ACCOUNT_JSON || process.env.FIREBASE_SERVICE_ACCOUNT || '';
+  if (jsonRaw) {
+    try {
+      const parsed = JSON.parse(jsonRaw);
+      const projectId = parsed.project_id || parsed.projectId;
+      const clientEmail = parsed.client_email || parsed.clientEmail;
+      const privateKey = normalizePrivateKey(parsed.private_key || parsed.privateKey || '');
+      if (!projectId || !clientEmail || !privateKey) {
+        throw new Error(
+          'FIREBASE_SERVICE_ACCOUNT_JSON incompleto: precisa de project_id, client_email e private_key.'
+        );
+      }
+      return { projectId: String(projectId), clientEmail: String(clientEmail), privateKey };
+    } catch (e) {
+      if (e && e.message && /FIREBASE_SERVICE_ACCOUNT|PRIVATE KEY|PEM/i.test(e.message)) throw e;
+      throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON inválido (não é JSON).');
+    }
+  }
+
+  const projectId = (process.env.FIREBASE_PROJECT_ID || '').trim();
+  const clientEmail = (process.env.FIREBASE_CLIENT_EMAIL || '').trim();
+  let privateKey = '';
+  try {
+    privateKey = normalizePrivateKey(process.env.FIREBASE_PRIVATE_KEY || '');
+  } catch (e) {
+    throw e;
+  }
+
+  const missing = [];
+  if (!projectId) missing.push('FIREBASE_PROJECT_ID');
+  if (!clientEmail) missing.push('FIREBASE_CLIENT_EMAIL');
+  if (!privateKey) missing.push('FIREBASE_PRIVATE_KEY');
+  if (missing.length) {
+    throw new Error(
+      `Configure no projeto Vercel (dashproducao): ${missing.join(', ')}. ` +
+      'Ou use FIREBASE_SERVICE_ACCOUNT_JSON com o JSON completo da service account.'
+    );
+  }
+
+  return { projectId, clientEmail, privateKey };
+}
+
 function getAdmin() {
   if (!admin.apps.length) {
+    const cred = resolveFirebaseCredential();
     admin.initializeApp({
       credential: admin.credential.cert({
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey: (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
+        projectId: cred.projectId,
+        clientEmail: cred.clientEmail,
+        privateKey: cred.privateKey,
       }),
+      projectId: cred.projectId,
     });
   }
   return admin;
@@ -225,6 +330,8 @@ module.exports = async (req, res) => {
       ...(errors.length ? { partialErrors: errors } : {}),
     });
   } catch (err) {
-    res.status(500).json({ error: String(err && err.message ? err.message : err) });
+    const msg = String(err && err.message ? err.message : err);
+    const isConfig = /Configure|FIREBASE_|inválido|incompleto|PRIVATE KEY|PEM/i.test(msg);
+    res.status(isConfig ? 400 : 500).json({ error: msg });
   }
 };
