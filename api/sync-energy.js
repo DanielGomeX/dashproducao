@@ -1,18 +1,39 @@
 // Vercel Serverless Function — /api/sync-energy
 //
-// Busca o consumo de energia (ARM e/ou TERM) na API da Way2 e grava o total
-// diário (kWh) no Firestore, no documento daily/{YYYY-MM-DD}.
+// Sincroniza energia ARM e TERM na Way2 — cada localidade com seu próprio
+// subscriptionId + sdpId — e grava o total diário (kWh) no Firestore
+// (daily/{YYYY-MM-DD}: en_arm_kwh, en_term_kwh).
 //
-// As credenciais (Way2 e Firebase Admin) NUNCA ficam no HTML — só aqui,
-// como variáveis de ambiente do projeto na Vercel. Veja o guia de
-// configuração (SETUP.md) para a lista completa de variáveis.
+// Endpoint Way2 (por localidade):
+//   GET /{sdpId}/energy/demand/active?pageSize=&pageIndex=&start=&end=
+//   Headers: subscriptionId, x-way2-key
+//
+// Variáveis de ambiente (Vercel) — configure as duas localidades:
+//
+//   ARM:
+//     WAY2_ARM_SUBSCRIPTION_ID
+//     WAY2_ARM_SDP_ID
+//     WAY2_ARM_KEY              (opcional; senão usa WAY2_KEY)
+//
+//   TERM:
+//     WAY2_TERM_SUBSCRIPTION_ID
+//     WAY2_TERM_SDP_ID
+//     WAY2_TERM_KEY             (opcional; senão usa WAY2_KEY)
+//
+//   Compartilhado (se as keys forem iguais):
+//     WAY2_KEY
+//
+//   Firebase Admin:
+//     FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY
 //
 // Uso:
-//   GET  /api/sync-energy                -> sincroniza o dia de ONTEM (uso pelo cron)
-//   GET  /api/sync-energy?date=2026-07-15 -> sincroniza uma data específica
-//   POST /api/sync-energy { "date": "2026-07-15" } -> idem, via botão do dashboard
+//   GET  /api/sync-energy
+//   GET  /api/sync-energy?date=2026-07-15
+//   POST /api/sync-energy { "date": "2026-07-15" }
 
 const admin = require('firebase-admin');
+
+const WAY2_BASE = (process.env.WAY2_API_BASE || 'https://api-prod.way2.com.br').replace(/\/$/, '');
 
 function getAdmin() {
   if (!admin.apps.length) {
@@ -20,8 +41,6 @@ function getAdmin() {
       credential: admin.credential.cert({
         projectId: process.env.FIREBASE_PROJECT_ID,
         clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        // No painel da Vercel, quebras de linha da chave privada viram "\n" literal;
-        // aqui convertemos de volta para quebras de linha reais.
         privateKey: (process.env.FIREBASE_PRIVATE_KEY || '').replace(/\\n/g, '\n'),
       }),
     });
@@ -29,35 +48,67 @@ function getAdmin() {
   return admin;
 }
 
-async function fetchWay2(measurementId, startISO, endISO) {
+/** Credenciais por localidade (ARM / TERM). */
+function resolveSites() {
+  const sharedKey = process.env.WAY2_KEY || '';
+
+  const sites = [
+    {
+      name: 'arm',
+      field: 'en_arm_kwh',
+      subscriptionId: process.env.WAY2_ARM_SUBSCRIPTION_ID || '',
+      sdpId: process.env.WAY2_ARM_SDP_ID || '',
+      apiKey: process.env.WAY2_ARM_KEY || sharedKey,
+    },
+    {
+      name: 'term',
+      field: 'en_term_kwh',
+      subscriptionId: process.env.WAY2_TERM_SUBSCRIPTION_ID || '',
+      sdpId: process.env.WAY2_TERM_SDP_ID || '',
+      apiKey: process.env.WAY2_TERM_KEY || sharedKey,
+    },
+  ];
+
+  return sites.filter((s) => s.subscriptionId && s.sdpId);
+}
+
+function missingSiteConfig() {
+  const missing = [];
+  if (!process.env.WAY2_ARM_SUBSCRIPTION_ID || !process.env.WAY2_ARM_SDP_ID) {
+    missing.push('ARM (WAY2_ARM_SUBSCRIPTION_ID + WAY2_ARM_SDP_ID)');
+  }
+  if (!process.env.WAY2_TERM_SUBSCRIPTION_ID || !process.env.WAY2_TERM_SDP_ID) {
+    missing.push('TERM (WAY2_TERM_SUBSCRIPTION_ID + WAY2_TERM_SDP_ID)');
+  }
+  return missing;
+}
+
+async function fetchWay2({ sdpId, subscriptionId, apiKey }, startISO, endISO) {
   const url =
-    `https://api-prod.way2.com.br/measurements/${measurementId}/energy/demand/active` +
+    `${WAY2_BASE}/${encodeURIComponent(sdpId)}/energy/demand/active` +
     `?pageSize=500&pageIndex=1&start=${encodeURIComponent(startISO)}&end=${encodeURIComponent(endISO)}` +
     `&orderByField=DateTime&sortDirection=ASC&origin=Telemetry`;
 
   const res = await fetch(url, {
     method: 'GET',
     headers: {
-      subscriptionId: process.env.WAY2_SUBSCRIPTION_ID,
+      subscriptionId,
       'Cache-Control': 'no-cache',
-      'x-way2-key': process.env.WAY2_KEY,
+      'x-way2-key': apiKey,
     },
   });
 
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`Way2 API respondeu ${res.status}: ${text.slice(0, 300)}`);
+    throw new Error(`Way2 (${sdpId}) respondeu ${res.status}: ${text.slice(0, 300)}`);
   }
   try {
     return JSON.parse(text);
   } catch (e) {
-    throw new Error(`Resposta da Way2 não é JSON válido: ${text.slice(0, 300)}`);
+    throw new Error(`Way2 (${sdpId}) não retornou JSON válido: ${text.slice(0, 300)}`);
   }
 }
 
-// A Way2 pode devolver formatos diferentes (array direto, ou { data: [...] } / { items: [...] }).
-// Tentamos cobrir os casos mais comuns. IMPORTANTE: confira o nome real do campo de valor
-// no payload de resposta e ajuste a lista abaixo se necessário (ex.: "activeDemand", "kwh").
 function sumEnergy(payload) {
   const items = Array.isArray(payload)
     ? payload
@@ -98,29 +149,56 @@ module.exports = async (req, res) => {
       .toISOString().slice(0, 10);
     const end = `${nextDay}T00:00:00-03:00`;
 
-    if (!process.env.WAY2_SUBSCRIPTION_ID || !process.env.WAY2_KEY) {
-      res.status(400).json({ error: 'Configure WAY2_SUBSCRIPTION_ID e WAY2_KEY nas variáveis de ambiente da Vercel.' });
+    const sites = resolveSites();
+    if (!sites.length) {
+      res.status(400).json({
+        error:
+          'Configure ARM e/ou TERM com subscriptionId + sdpId próprios. ' +
+          'Faltando: ' + missingSiteConfig().join('; ') + '.',
+      });
       return;
     }
 
-    const results = {};
-    const raw = {};
-
-    if (process.env.WAY2_MEASUREMENT_ARM) {
-      const payload = await fetchWay2(process.env.WAY2_MEASUREMENT_ARM, start, end);
-      const { total, count } = sumEnergy(payload);
-      results.en_arm_kwh = total;
-      raw.arm = { count };
+    for (const site of sites) {
+      if (!site.apiKey) {
+        res.status(400).json({
+          error: `Configure WAY2_${site.name.toUpperCase()}_KEY ou WAY2_KEY para a localidade ${site.name.toUpperCase()}.`,
+        });
+        return;
+      }
     }
-    if (process.env.WAY2_MEASUREMENT_TERM) {
-      const payload = await fetchWay2(process.env.WAY2_MEASUREMENT_TERM, start, end);
-      const { total, count } = sumEnergy(payload);
-      results.en_term_kwh = total;
-      raw.term = { count };
+
+    const results = {};
+    const debug = {};
+    const errors = [];
+
+    // Cada localidade é consultada com o seu próprio subscriptionId + sdpId.
+    for (const site of sites) {
+      try {
+        const payload = await fetchWay2(site, start, end);
+        const { total, count } = sumEnergy(payload);
+        results[site.field] = total;
+        debug[site.name] = {
+          sdpId: site.sdpId,
+          subscriptionId: site.subscriptionId,
+          count,
+        };
+      } catch (err) {
+        errors.push({ site: site.name, error: String(err && err.message ? err.message : err) });
+        debug[site.name] = {
+          sdpId: site.sdpId,
+          subscriptionId: site.subscriptionId,
+          error: String(err && err.message ? err.message : err),
+        };
+      }
     }
 
     if (!Object.keys(results).length) {
-      res.status(400).json({ error: 'Configure WAY2_MEASUREMENT_ARM e/ou WAY2_MEASUREMENT_TERM nas variáveis de ambiente.' });
+      res.status(502).json({
+        error: 'Nenhuma localidade retornou dados da Way2.',
+        debug,
+        errors,
+      });
       return;
     }
 
@@ -130,7 +208,13 @@ module.exports = async (req, res) => {
       { merge: true }
     );
 
-    res.status(200).json({ ok: true, date: targetDate, ...results, debug: raw });
+    res.status(200).json({
+      ok: true,
+      date: targetDate,
+      ...results,
+      debug,
+      ...(errors.length ? { partialErrors: errors } : {}),
+    });
   } catch (err) {
     res.status(500).json({ error: String(err && err.message ? err.message : err) });
   }

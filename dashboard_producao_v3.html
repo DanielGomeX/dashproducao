@@ -325,8 +325,15 @@ async function triggerEnergySync(dateStr){
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ date: dateStr }),
   });
-  const json = await res.json();
-  if(!res.ok) throw new Error(json.error || 'Falha na sincronização');
+  const text = await res.text();
+  let json = null;
+  try { json = text ? JSON.parse(text) : null; } catch (_) {
+    if (res.status === 404 || text.trimStart().startsWith('<!')) {
+      throw new Error('API não encontrada. Abra o dashboard pela URL da Vercel (não pelo Live Server/arquivo local).');
+    }
+    throw new Error(`Resposta inválida da API (HTTP ${res.status})`);
+  }
+  if(!res.ok) throw new Error((json && json.error) || `Falha na sincronização (HTTP ${res.status})`);
   return json;
 }
 
