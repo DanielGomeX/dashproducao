@@ -5,8 +5,9 @@
 // (daily/{YYYY-MM-DD}: en_arm_kwh, en_term_kwh).
 //
 // Endpoint Way2 (por localidade):
-//   GET /{sdpId}/energy/demand/active?pageSize=&pageIndex=&start=&end=
+//   GET /measurements/{sdpId}/energy/demand/active?pageSize=&pageIndex=&start=&end=
 //   Headers: subscriptionId, x-way2-key
+//   (O parâmetro da doc é sdpId; o prefixo /measurements é obrigatório na API.)
 //
 // Variáveis de ambiente (Vercel) — configure as duas localidades:
 //
@@ -83,9 +84,11 @@ function missingSiteConfig() {
   return missing;
 }
 
-async function fetchWay2({ sdpId, subscriptionId, apiKey }, startISO, endISO) {
+async function fetchWay2({ sdpId, subscriptionId, apiKey, name }, startISO, endISO) {
+  // Doc: GET /{sdpId}/energy/demand/active — na API real o recurso fica sob /measurements/
+  const pathPrefix = (process.env.WAY2_PATH_PREFIX || '/measurements').replace(/\/$/, '');
   const url =
-    `${WAY2_BASE}/${encodeURIComponent(sdpId)}/energy/demand/active` +
+    `${WAY2_BASE}${pathPrefix}/${encodeURIComponent(sdpId)}/energy/demand/active` +
     `?pageSize=500&pageIndex=1&start=${encodeURIComponent(startISO)}&end=${encodeURIComponent(endISO)}` +
     `&orderByField=DateTime&sortDirection=ASC&origin=Telemetry`;
 
@@ -100,12 +103,16 @@ async function fetchWay2({ sdpId, subscriptionId, apiKey }, startISO, endISO) {
 
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`Way2 (${sdpId}) respondeu ${res.status}: ${text.slice(0, 300)}`);
+    const err = new Error(
+      `Way2 ${String(name || '').toUpperCase()} respondeu ${res.status}: ${text.slice(0, 300)}`
+    );
+    err.url = url;
+    throw err;
   }
   try {
-    return JSON.parse(text);
+    return { payload: JSON.parse(text), url };
   } catch (e) {
-    throw new Error(`Way2 (${sdpId}) não retornou JSON válido: ${text.slice(0, 300)}`);
+    throw new Error(`Way2 ${String(name || '').toUpperCase()} não retornou JSON válido: ${text.slice(0, 300)}`);
   }
 }
 
@@ -175,12 +182,13 @@ module.exports = async (req, res) => {
     // Cada localidade é consultada com o seu próprio subscriptionId + sdpId.
     for (const site of sites) {
       try {
-        const payload = await fetchWay2(site, start, end);
+        const { payload, url } = await fetchWay2(site, start, end);
         const { total, count } = sumEnergy(payload);
         results[site.field] = total;
         debug[site.name] = {
           sdpId: site.sdpId,
           subscriptionId: site.subscriptionId,
+          url,
           count,
         };
       } catch (err) {
@@ -188,6 +196,7 @@ module.exports = async (req, res) => {
         debug[site.name] = {
           sdpId: site.sdpId,
           subscriptionId: site.subscriptionId,
+          url: err && err.url ? err.url : undefined,
           error: String(err && err.message ? err.message : err),
         };
       }
