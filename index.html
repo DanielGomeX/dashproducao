@@ -239,6 +239,11 @@ function sortedDates(){ return Object.keys(dailyData).sort(); }
 function getIndicatorValue(dateStr, key){
   const rec = dailyData[dateStr];
   if(!rec) return null;
+  // Métricas extras de gráfico: kWh bruto sincronizado (não precisa de vol)
+  if(key === 'en_arm_kwh' || key === 'en_term_kwh'){
+    const v = rec[key];
+    return (v === undefined || v === null || v === '') ? null : Number(v);
+  }
   const manual = rec[key];
   if(manual !== undefined && manual !== null && manual !== '') return Number(manual);
   const ind = INDICATORS.find(i => i.key === key);
@@ -254,6 +259,14 @@ function isAutoValue(dateStr, key){
   if(manual !== undefined && manual !== null && manual !== '') return false;
   const ind = INDICATORS.find(i => i.key === key);
   return !!(ind && ind.auto && rec[ind.auto] !== undefined && rec.vol);
+}
+function syncedKwhHint(dateStr, key){
+  const rec = dailyData[dateStr];
+  const ind = INDICATORS.find(i => i.key === key);
+  if(!rec || !ind || !ind.auto) return '';
+  if(rec[ind.auto] === undefined || rec[ind.auto] === null) return '';
+  if(rec.vol) return '';
+  return `${fmt(rec[ind.auto], 0)} kWh (informe vol)`;
 }
 
 function monthlyAggregate(){
@@ -422,8 +435,10 @@ function buildHistoryTable(){
     INDICATORS.forEach(ind => {
       const raw = dailyData[d][ind.key];
       const auto = isAutoValue(d, ind.key);
-      const displayVal = raw ?? (auto ? fmt(getIndicatorValue(d, ind.key)) : '');
-      body += `<td><input class="hist-cell" data-date="${d}" data-key="${ind.key}" type="number" step="any" value="${raw ?? ''}" placeholder="${auto ? fmt(getIndicatorValue(d, ind.key)) : ''}" style="width:5rem;background:transparent;border:none;color:${auto?'var(--good)':'var(--text)'};text-align:right;font-size:.72rem;"></td>`;
+      const pending = syncedKwhHint(d, ind.key);
+      const placeholder = auto ? fmt(getIndicatorValue(d, ind.key)) : (pending || '');
+      const color = auto || pending ? 'var(--good)' : 'var(--text)';
+      body += `<td><input class="hist-cell" data-date="${d}" data-key="${ind.key}" type="number" step="any" value="${raw ?? ''}" placeholder="${placeholder}" title="${pending || ''}" style="width:5rem;background:transparent;border:none;color:${color};text-align:right;font-size:.72rem;"></td>`;
     });
     body += `<td><span class="icon-btn" data-del="${d}">✕</span></td></tr>`;
   });
@@ -462,13 +477,17 @@ function buildKpis(){
   const volPrev = monthVal('vol', prevIdx);
   const deltaPct = (volPrev && volCur !== null) ? ((volCur-volPrev)/volPrev*100) : null;
   const todayVol = dailyData[today] ? dailyData[today].vol : null;
+  const todayArmKwh = dailyData[today]?.en_arm_kwh;
+  const todayTermKwh = dailyData[today]?.en_term_kwh;
 
   const items = [
     { label:'Produção hoje (ton)', value: todayVol!==undefined && todayVol!==null ? fmt(todayVol,0) : '—' },
     { label:`Mês atual (${monthLabel(currentMonth)}) (ton)`, value: fmt(volCur,0), delta: deltaPct },
     { label:'Energia ARM — mês (kWh/ton)', value: fmt(monthVal('en_arm',curIdx)), meta: metaData.en_arm },
     { label:'Energia TERM — mês (kWh/ton)', value: fmt(monthVal('en_term',curIdx)), meta: metaData.en_term },
-    { label:'GN — mês (m³/ton)', value: fmt(monthVal('gn',curIdx)), meta: metaData.gn },
+    { label:'Way2 hoje (kWh ARM / TERM)', value: (todayArmKwh!=null || todayTermKwh!=null)
+        ? `${todayArmKwh!=null?fmt(todayArmKwh,0):'—'} / ${todayTermKwh!=null?fmt(todayTermKwh,0):'—'}`
+        : '—' },
   ];
   document.getElementById('kpiRow').innerHTML = items.map(it => `
     <div class="kpi">
@@ -509,7 +528,13 @@ function destroyChart(id){ if(charts[id]){ charts[id].destroy(); delete charts[i
 function buildDailyMetricSelect(){
   const sel = document.getElementById('dailyMetricSelect');
   if(sel.options.length) return;
-  sel.innerHTML = INDICATORS.map(ind => `<option value="${ind.key}">${ind.label}</option>`).join('');
+  const extras = [
+    { key:'en_arm_kwh', label:'ARM sincronizado (kWh)' },
+    { key:'en_term_kwh', label:'TERM sincronizado (kWh)' },
+  ];
+  sel.innerHTML =
+    INDICATORS.map(ind => `<option value="${ind.key}">${ind.label}</option>`).join('') +
+    extras.map(x => `<option value="${x.key}">${x.label}</option>`).join('');
   sel.addEventListener('change', buildDailyChart);
   document.getElementById('dailyRangeSelect').addEventListener('change', buildDailyChart);
 }
@@ -520,12 +545,15 @@ function buildDailyChart(){
   const ind = INDICATORS.find(i=>i.key===key);
   const dates = sortedDates().slice(-range);
   const values = dates.map(d => getIndicatorValue(d, key));
+  const label = ind
+    ? `${ind.label} (${ind.unit})`
+    : (key === 'en_arm_kwh' ? 'ARM sincronizado (kWh)' : 'TERM sincronizado (kWh)');
 
   destroyChart('daily');
   charts.daily = new Chart(document.getElementById('dailyChart'), {
     type: 'line',
     data: { labels: dates, datasets: [{
-      label: `${ind.label} (${ind.unit})`, data: values, borderColor:'#3a63ff',
+      label, data: values, borderColor:'#3a63ff',
       backgroundColor:'rgba(58,99,255,0.12)', fill:true, tension:.3, pointRadius:2, borderWidth:2, spanGaps:true,
     }]},
     options: { responsive:true, maintainAspectRatio:false,
