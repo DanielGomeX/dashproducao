@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Teste Way2 — Energia</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, "Segoe UI", Arial, sans-serif;
+    background: #10141f;
+    color: #e7ebf5;
+  }
+  .app { max-width: 1100px; margin: 0 auto; padding: 24px; }
+  h1 { font-size: 22px; margin: 0 0 6px; }
+  .sub { color: #8b93ab; font-size: 13px; margin-bottom: 20px; }
+  .card {
+    background: #1a2033; border: 1px solid #232a42; border-radius: 12px;
+    padding: 16px 18px; margin-bottom: 16px;
+  }
+  .card h3 { margin: 0 0 12px; font-size: 14px; color: #cfd6ea; }
+  .grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+  }
+  label { display: block; font-size: 12px; color: #8b93ab; margin-bottom: 4px; font-weight: 600; }
+  input, select {
+    width: 100%; background: #161c2c; border: 1px solid #232a42; color: #e7ebf5;
+    padding: 9px 10px; border-radius: 8px; font-size: 13px;
+  }
+  input:focus, select:focus { outline: 1px solid #3a63ff; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; align-items: center; }
+  button {
+    background: #3a63ff; border: none; color: #fff; padding: 10px 16px;
+    border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer;
+  }
+  button:hover { background: #2f52dd; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  button.secondary { background: #1a2033; border: 1px solid #2b3450; color: #cfd6ea; }
+  .status { font-size: 12px; color: #8b93ab; }
+  .status.ok { color: #6bd08a; }
+  .status.err { color: #ef6a6a; }
+  .kpis {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px; margin-bottom: 14px;
+  }
+  .kpi {
+    background: #161c2c; border: 1px solid #232a42; border-radius: 10px; padding: 12px 14px;
+  }
+  .kpi .l { font-size: 11px; color: #8b93ab; margin-bottom: 4px; }
+  .kpi .v { font-size: 20px; font-weight: 700; }
+  pre {
+    margin: 0; max-height: 480px; overflow: auto; background: #0d111b;
+    border-radius: 8px; padding: 12px; font-size: 12px; line-height: 1.45;
+    color: #cfd6ea; white-space: pre-wrap; word-break: break-word;
+  }
+  .url { font-size: 11px; color: #6b7391; word-break: break-all; margin-bottom: 10px; }
+  .note { font-size: 11.5px; color: #6b7391; margin-top: 10px; }
+  a { color: #3a63ff; }
+  .adv { margin-top: 8px; }
+  .adv summary { cursor: pointer; color: #8b93ab; font-size: 12px; font-weight: 600; }
+  .adv .grid { margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>Teste Way2 — demanda ativa</h1>
+  <div class="sub">
+    Espelho do script PHP: chama <code>/api/way2-test</code> (proxy na Vercel) e mostra o JSON recebido.
+    <a href="/">← Voltar ao dashboard</a>
+  </div>
+
+  <div class="card">
+    <h3>Parâmetros</h3>
+    <div class="grid">
+      <div>
+        <label for="site">Localidade</label>
+        <select id="site">
+          <option value="term">TERM</option>
+          <option value="arm">ARM</option>
+        </select>
+      </div>
+      <div>
+        <label for="startDate">Início (data)</label>
+        <input type="date" id="startDate" value="2025-01-01">
+      </div>
+      <div>
+        <label for="endDate">Fim (data, exclusive no exemplo PHP)</label>
+        <input type="date" id="endDate" value="2025-01-31">
+      </div>
+      <div>
+        <label for="pageSize">pageSize</label>
+        <input type="number" id="pageSize" value="500" min="1" max="1000">
+      </div>
+    </div>
+
+    <details class="adv">
+      <summary>Override manual (sdpId / subscriptionId / key) — opcional</summary>
+      <div class="grid">
+        <div>
+          <label for="sdpId">sdpId</label>
+          <input type="text" id="sdpId" placeholder="usa env da Vercel se vazio">
+        </div>
+        <div>
+          <label for="subscriptionId">subscriptionId</label>
+          <input type="text" id="subscriptionId" placeholder="usa env da Vercel se vazio">
+        </div>
+        <div>
+          <label for="apiKey">x-way2-key</label>
+          <input type="password" id="apiKey" placeholder="usa env da Vercel se vazio" autocomplete="off">
+        </div>
+      </div>
+    </details>
+
+    <div class="actions">
+      <button id="runBtn" type="button">Consultar Way2</button>
+      <button class="secondary" id="fillPhpBtn" type="button" title="Preenche com os IDs do exemplo PHP (TERM)">Usar IDs do exemplo PHP</button>
+      <span class="status" id="status"></span>
+    </div>
+    <div class="note">
+      Em produção as credenciais vêm das variáveis <code>WAY2_ARM_*</code> / <code>WAY2_TERM_*</code>.
+      Não coloque a key no HTML público em definitivo — use só para teste pontual via override.
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Resumo</h3>
+    <div class="kpis" id="kpiRow">
+      <div class="kpi"><div class="l">Status</div><div class="v" id="kStatus">—</div></div>
+      <div class="kpi"><div class="l">Registros</div><div class="v" id="kCount">—</div></div>
+      <div class="kpi"><div class="l">Total bruto (kWh)</div><div class="v" id="kGross">—</div></div>
+      <div class="kpi"><div class="l">Fixo descontado</div><div class="v" id="kFixo">—</div></div>
+      <div class="kpi"><div class="l">Líquido (kWh)</div><div class="v" id="kNet">—</div></div>
+    </div>
+    <div class="url" id="urlLine"></div>
+  </div>
+
+  <div class="card">
+    <h3>JSON recebido</h3>
+    <pre id="out">Clique em “Consultar Way2”.</pre>
+  </div>
+</div>
+
+<script>
+function toIsoStart(dateStr){
+  return `${dateStr}T00:00:00-03:00`;
+}
+function fmt(n){
+  if(n === null || n === undefined || isNaN(n)) return '—';
+  return Number(n).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+}
+
+document.getElementById('fillPhpBtn').addEventListener('click', () => {
+  document.getElementById('site').value = 'term';
+  document.getElementById('sdpId').value = 'd3687711-9ccf-458a-90ea-38a23907de27';
+  document.getElementById('subscriptionId').value = 'f401fb08-7351-4639-99c3-61a56183d67f';
+  document.getElementById('apiKey').value = '';
+  document.getElementById('startDate').value = '2025-01-01';
+  document.getElementById('endDate').value = '2025-01-31';
+  document.getElementById('status').textContent = 'IDs do exemplo PHP preenchidos — key vem da Vercel (ou cole no override)';
+  document.getElementById('status').className = 'status ok';
+});
+
+document.getElementById('runBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('runBtn');
+  const status = document.getElementById('status');
+  const out = document.getElementById('out');
+  btn.disabled = true;
+  status.className = 'status';
+  status.textContent = 'consultando…';
+  out.textContent = 'Aguardando resposta…';
+
+  const body = {
+    site: document.getElementById('site').value,
+    start: toIsoStart(document.getElementById('startDate').value),
+    end: toIsoStart(document.getElementById('endDate').value),
+    pageSize: Number(document.getElementById('pageSize').value) || 500,
+    pageIndex: 1,
+  };
+  const sdpId = document.getElementById('sdpId').value.trim();
+  const subscriptionId = document.getElementById('subscriptionId').value.trim();
+  const apiKey = document.getElementById('apiKey').value.trim();
+  if(sdpId) body.sdpId = sdpId;
+  if(subscriptionId) body.subscriptionId = subscriptionId;
+  if(apiKey) body.apiKey = apiKey;
+
+  try {
+    const res = await fetch('/api/way2-test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    let json;
+    try { json = JSON.parse(text); }
+    catch(_) {
+      throw new Error(`Resposta não-JSON (HTTP ${res.status}): ${text.slice(0, 200)}`);
+    }
+
+    document.getElementById('urlLine').textContent = json.url || '';
+    document.getElementById('kStatus').textContent = String(json.status ?? res.status);
+    document.getElementById('kCount').textContent = json.count != null ? fmt(json.count) : '—';
+    document.getElementById('kGross').textContent = json.totalKwh != null ? fmt(json.totalKwh) : '—';
+    document.getElementById('kFixo').textContent = json.fixoKwh != null ? fmt(json.fixoKwh) : '—';
+    document.getElementById('kNet').textContent = json.netKwh != null ? fmt(json.netKwh) : '—';
+
+    out.textContent = JSON.stringify(json, null, 2);
+
+    if(!res.ok || json.ok === false){
+      status.className = 'status err';
+      status.textContent = json.error || `HTTP ${res.status}`;
+    } else {
+      status.className = 'status ok';
+      status.textContent = `OK · ${json.count || 0} pontos`;
+    }
+  } catch(err){
+    status.className = 'status err';
+    status.textContent = String(err.message || err);
+    out.textContent = String(err.message || err);
+  } finally {
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

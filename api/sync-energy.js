@@ -282,6 +282,7 @@ module.exports = async (req, res) => {
     const nextDay = new Date(new Date(`${targetDate}T00:00:00-03:00`).getTime() + 24 * 60 * 60 * 1000)
       .toISOString().slice(0, 10);
     const end = `${nextDay}T00:00:00-03:00`;
+   //const end = `${targetDate}T23:59:59-03:00`;
 
     const sites = resolveSites();
     if (!sites.length) {
