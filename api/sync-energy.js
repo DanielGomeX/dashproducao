@@ -24,6 +24,10 @@
 //   Compartilhado (se as keys forem iguais):
 //     WAY2_KEY
 //
+//   Consumo fixo diário a descontar do total Way2 (kWh), antes de gravar/calcular:
+//     FIXO_ARM_KWH
+//     FIXO_TERM_KWH
+//
 //   Firebase Admin (obrigatório para gravar no Firestore):
 //     FIREBASE_PROJECT_ID          (ex.: producao-f843f)
 //     FIREBASE_CLIENT_EMAIL        (ex.: firebase-adminsdk-...@....iam.gserviceaccount.com)
@@ -246,6 +250,24 @@ function yesterday() {
   return d.toISOString().slice(0, 10);
 }
 
+function fixedKwhForSite(siteName) {
+  const raw =
+    siteName === 'arm'
+      ? process.env.FIXO_ARM_KWH
+      : siteName === 'term'
+        ? process.env.FIXO_TERM_KWH
+        : '';
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/** Bruto Way2 − consumo fixo do dia (nunca negativo). */
+function applyFixedDeduction(gross, fixo) {
+  const g = Number(gross) || 0;
+  const f = Number(fixo) || 0;
+  return Math.max(0, g - f);
+}
+
 module.exports = async (req, res) => {
   if (req.method !== 'GET' && req.method !== 'POST') {
     res.status(405).json({ error: 'Método não permitido' });
@@ -285,16 +307,22 @@ module.exports = async (req, res) => {
     const errors = [];
 
     // Cada localidade é consultada com o seu próprio subscriptionId + sdpId.
+    // O consumo fixo (FIXO_ARM_KWH / FIXO_TERM_KWH) é descontado antes de gravar.
     for (const site of sites) {
       try {
         const { payload, url } = await fetchWay2(site, start, end);
         const { total, count } = sumEnergy(payload);
-        results[site.field] = total;
+        const fixo = fixedKwhForSite(site.name);
+        const net = applyFixedDeduction(total, fixo);
+        results[site.field] = net;
         debug[site.name] = {
           sdpId: site.sdpId,
           subscriptionId: site.subscriptionId,
           url,
           count,
+          grossKwh: total,
+          fixoKwh: fixo,
+          netKwh: net,
         };
       } catch (err) {
         errors.push({ site: site.name, error: String(err && err.message ? err.message : err) });
