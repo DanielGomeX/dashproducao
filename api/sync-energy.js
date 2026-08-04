@@ -5,9 +5,10 @@
 // (daily/{YYYY-MM-DD}: en_arm_kwh, en_term_kwh).
 //
 // Endpoint Way2 (por localidade):
-//   GET /measurements/{sdpId}/energy/demand/active?pageSize=&pageIndex=&start=&end=
+//   GET /measurements/{sdpId}/energy/total-consumption/active?start=&end=&origin=Telemetry
+//   Resposta: { "consumptionValue": number }
 //   Headers: subscriptionId, x-way2-key
-//   (O parâmetro da doc é sdpId; o prefixo /measurements é obrigatório na API.)
+//   Janela operacional: 06:00 → 06:00 do dia seguinte (offset -03).
 //
 // Variáveis de ambiente (Vercel) — configure as duas localidades:
 //
@@ -194,12 +195,14 @@ function missingSiteConfig() {
 }
 
 async function fetchWay2({ sdpId, subscriptionId, apiKey, name }, startISO, endISO) {
-  // Doc: GET /{sdpId}/energy/demand/active — na API real o recurso fica sob /measurements/
+  // Consumo total do período: /measurements/{sdpId}/energy/total-consumption/active
   const pathPrefix = (process.env.WAY2_PATH_PREFIX || '/measurements').replace(/\/$/, '');
+  // Way2 aceita offset -03 (como no exemplo oficial)
+  const start = String(startISO).replace(/-03:00$/, '-03');
+  const end = String(endISO).replace(/-03:00$/, '-03');
   const url =
-    `${WAY2_BASE}${pathPrefix}/${encodeURIComponent(sdpId)}/energy/demand/active` +
-    `?pageSize=500&pageIndex=1&start=${encodeURIComponent(startISO)}&end=${encodeURIComponent(endISO)}` +
-    `&orderByField=DateTime&sortDirection=ASC&origin=Telemetry`;
+    `${WAY2_BASE}${pathPrefix}/${encodeURIComponent(sdpId)}/energy/total-consumption/active` +
+    `?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&origin=Telemetry`;
 
   const res = await fetch(url, {
     method: 'GET',
@@ -226,6 +229,15 @@ async function fetchWay2({ sdpId, subscriptionId, apiKey, name }, startISO, endI
 }
 
 function sumEnergy(payload) {
+  // Novo endpoint: { consumptionValue: number }
+  const direct =
+    payload?.consumptionValue ?? payload?.ConsumptionValue ?? payload?.value ?? null;
+  if (direct !== null && direct !== undefined) {
+    const num = typeof direct === 'string' ? Number(direct) : Number(direct);
+    if (Number.isFinite(num)) return { total: num, count: 1 };
+  }
+
+  // Fallback: séries pontuais (endpoint antigo demand/active)
   const items = Array.isArray(payload)
     ? payload
     : (payload?.data || payload?.items || payload?.results || payload?.measurements || []);
@@ -258,13 +270,13 @@ function addDaysYmd(ymd, days) {
 }
 
 /**
- * Dia operacional: 06:00 do dia D até 06:00 do dia D+1 (BRT -03:00).
- * Ex.: 2026-08-01 → 2026-08-01T06:00:00-03:00 … 2026-08-02T06:00:00-03:00
+ * Dia operacional: 06:00 do dia D até 06:00 do dia D+1 (BRT -03).
+ * Ex.: 2026-08-01 → 2026-08-01T06:00:00-03 … 2026-08-02T06:00:00-03
  */
 function dayWindowBRT(ymd) {
   return {
-    start: `${ymd}T06:00:00-03:00`,
-    end: `${addDaysYmd(ymd, 1)}T06:00:00-03:00`,
+    start: `${ymd}T06:00:00-03`,
+    end: `${addDaysYmd(ymd, 1)}T06:00:00-03`,
   };
 }
 
@@ -275,8 +287,9 @@ function fixedKwhForSite(siteName) {
       : siteName === 'term'
         ? process.env.FIXO_TERM_KWH
         : '';
-  const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? n : 0;
+  if (raw === undefined || raw === null || String(raw).trim() === '') return 0;
+  const n = Number(String(raw).trim().replace(',', '.'));
+  return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
 /** Bruto Way2 − consumo fixo do dia (nunca negativo). */

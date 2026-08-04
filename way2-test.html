@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Teste Way2 — Energia</title>
+<title>Teste Way2 — Consumo total</title>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -65,9 +65,10 @@
 </head>
 <body>
 <div class="app">
-  <h1>Teste Way2 — demanda ativa</h1>
+  <h1>Teste Way2 — consumo total ativo</h1>
   <div class="sub">
-    Espelho do script PHP: chama <code>/api/way2-test</code> (proxy na Vercel) e mostra o JSON recebido.
+    Endpoint: <code>/measurements/{sdpId}/energy/total-consumption/active</code>
+    → <code>{ consumptionValue }</code>.
     <a href="/">← Voltar ao dashboard</a>
   </div>
 
@@ -77,21 +78,21 @@
       <div>
         <label for="site">Localidade</label>
         <select id="site">
+          <option value="arm" selected>ARM</option>
           <option value="term">TERM</option>
-          <option value="arm">ARM</option>
         </select>
       </div>
       <div>
-        <label for="startDate">Início (dia operacional 06:00)</label>
-        <input type="date" id="startDate" value="2025-01-01">
+        <label for="startDate">Início (06:00)</label>
+        <input type="date" id="startDate" value="2026-08-01">
       </div>
       <div>
-        <label for="endDate">Fim (06:00 deste dia — exclusive)</label>
-        <input type="date" id="endDate" value="2025-01-31">
+        <label for="endDate">Fim (06:00 deste dia)</label>
+        <input type="date" id="endDate" value="2026-08-02">
       </div>
       <div>
-        <label for="pageSize">pageSize</label>
-        <input type="number" id="pageSize" value="500" min="1" max="1000">
+        <label for="fixoKwh">Desconto fixo (kWh)</label>
+        <input type="number" id="fixoKwh" step="any" min="0" placeholder="env FIXO_*_KWH">
       </div>
     </div>
 
@@ -115,26 +116,27 @@
 
     <div class="actions">
       <button id="runBtn" type="button">Consultar Way2</button>
-      <button class="secondary" id="fillPhpBtn" type="button" title="Preenche com os IDs do exemplo PHP (TERM)">Usar IDs do exemplo PHP</button>
+      <button class="secondary" id="fillPhpBtn" type="button">Usar exemplo PHP (ARM 01→02/ago)</button>
       <span class="status" id="status"></span>
     </div>
     <div class="note">
-      Dia operacional: <strong>06:00 → 06:00</strong> do dia seguinte (BRT −03:00).
-      Ex.: 2026-08-01 = <code>2026-08-01T06:00:00-03:00</code> até <code>2026-08-02T06:00:00-03:00</code>.
-      Credenciais: env <code>WAY2_ARM_*</code> / <code>WAY2_TERM_*</code> (override só para teste).
+      Janela: <strong>06:00 → 06:00</strong> (offset <code>-03</code>).
+      Fixo: campo acima ou variáveis <code>FIXO_ARM_KWH</code> / <code>FIXO_TERM_KWH</code> na Vercel.
+      Líquido = <code>consumptionValue − fixo</code>.
     </div>
   </div>
 
   <div class="card">
     <h3>Resumo</h3>
-    <div class="kpis" id="kpiRow">
+    <div class="kpis">
       <div class="kpi"><div class="l">Status</div><div class="v" id="kStatus">—</div></div>
-      <div class="kpi"><div class="l">Registros</div><div class="v" id="kCount">—</div></div>
-      <div class="kpi"><div class="l">Total bruto (kWh)</div><div class="v" id="kGross">—</div></div>
+      <div class="kpi"><div class="l">consumptionValue</div><div class="v" id="kGross">—</div></div>
       <div class="kpi"><div class="l">Fixo descontado</div><div class="v" id="kFixo">—</div></div>
       <div class="kpi"><div class="l">Líquido (kWh)</div><div class="v" id="kNet">—</div></div>
+      <div class="kpi"><div class="l">Origem do fixo</div><div class="v" id="kFixoSrc" style="font-size:13px;">—</div></div>
     </div>
     <div class="url" id="urlLine"></div>
+    <div class="note" id="envFixoNote"></div>
   </div>
 
   <div class="card">
@@ -145,7 +147,8 @@
 
 <script>
 function toIso0600(dateStr){
-  return `${dateStr}T06:00:00-03:00`;
+  // Formato igual ao PHP que funcionou: ...T06:00:00-03
+  return `${dateStr}T06:00:00-03`;
 }
 function fmt(n){
   if(n === null || n === undefined || isNaN(n)) return '—';
@@ -153,13 +156,13 @@ function fmt(n){
 }
 
 document.getElementById('fillPhpBtn').addEventListener('click', () => {
-  document.getElementById('site').value = 'term';
-  document.getElementById('sdpId').value = 'd3687711-9ccf-458a-90ea-38a23907de27';
+  document.getElementById('site').value = 'arm';
+  document.getElementById('sdpId').value = '9ece1b5c-d0d5-4cd0-acdf-0715eb332ef0';
   document.getElementById('subscriptionId').value = 'f401fb08-7351-4639-99c3-61a56183d67f';
   document.getElementById('apiKey').value = '';
-  document.getElementById('startDate').value = '2025-01-01';
-  document.getElementById('endDate').value = '2025-01-31';
-  document.getElementById('status').textContent = 'IDs do exemplo PHP preenchidos — key vem da Vercel (ou cole no override)';
+  document.getElementById('startDate').value = '2026-08-01';
+  document.getElementById('endDate').value = '2026-08-02';
+  document.getElementById('status').textContent = 'Exemplo PHP (ARM) preenchido — key/fixo via Vercel ou override';
   document.getElementById('status').className = 'status ok';
 });
 
@@ -176,15 +179,15 @@ document.getElementById('runBtn').addEventListener('click', async () => {
     site: document.getElementById('site').value,
     start: toIso0600(document.getElementById('startDate').value),
     end: toIso0600(document.getElementById('endDate').value),
-    pageSize: Number(document.getElementById('pageSize').value) || 500,
-    pageIndex: 1,
   };
   const sdpId = document.getElementById('sdpId').value.trim();
   const subscriptionId = document.getElementById('subscriptionId').value.trim();
   const apiKey = document.getElementById('apiKey').value.trim();
+  const fixoRaw = document.getElementById('fixoKwh').value.trim();
   if(sdpId) body.sdpId = sdpId;
   if(subscriptionId) body.subscriptionId = subscriptionId;
   if(apiKey) body.apiKey = apiKey;
+  if(fixoRaw !== '') body.fixoKwh = Number(fixoRaw.replace(',', '.'));
 
   try {
     const res = await fetch('/api/way2-test', {
@@ -201,10 +204,23 @@ document.getElementById('runBtn').addEventListener('click', async () => {
 
     document.getElementById('urlLine').textContent = json.url || '';
     document.getElementById('kStatus').textContent = String(json.status ?? res.status);
-    document.getElementById('kCount').textContent = json.count != null ? fmt(json.count) : '—';
     document.getElementById('kGross').textContent = json.totalKwh != null ? fmt(json.totalKwh) : '—';
     document.getElementById('kFixo').textContent = json.fixoKwh != null ? fmt(json.fixoKwh) : '—';
     document.getElementById('kNet').textContent = json.netKwh != null ? fmt(json.netKwh) : '—';
+    document.getElementById('kFixoSrc').textContent = json.fixoSource || '—';
+
+    if(json.envFixo){
+      document.getElementById('envFixoNote').textContent =
+        `Env na Vercel → FIXO_ARM_KWH=${fmt(json.envFixo.arm)} · FIXO_TERM_KWH=${fmt(json.envFixo.term)}` +
+        (json.fixoKwh === 0 && json.envFixo.arm === 0 && json.envFixo.term === 0
+          ? ' — configure as variáveis ou preencha “Desconto fixo” acima.'
+          : '');
+      // Prefill empty fixo field with env for current site after first call
+      const fixoInput = document.getElementById('fixoKwh');
+      if(fixoInput.value.trim() === '' && json.fixoKwh > 0){
+        fixoInput.placeholder = String(json.fixoKwh);
+      }
+    }
 
     out.textContent = JSON.stringify(json, null, 2);
 
@@ -213,7 +229,7 @@ document.getElementById('runBtn').addEventListener('click', async () => {
       status.textContent = json.error || `HTTP ${res.status}`;
     } else {
       status.className = 'status ok';
-      status.textContent = `OK · ${json.count || 0} pontos`;
+      status.textContent = `OK · líquido ${fmt(json.netKwh)} kWh`;
     }
   } catch(err){
     status.className = 'status err';
