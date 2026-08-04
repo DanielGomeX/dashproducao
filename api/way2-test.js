@@ -24,9 +24,19 @@ function addDaysYmd(ymd, days) {
   return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
 }
 
-/** Formato ISO usado na Way2 (offset -03, sem :00). */
-function iso0600(ymd) {
+/** Início do dia operacional (06:00). */
+function isoStart(ymd) {
   return `${ymd}T06:00:00-03`;
+}
+
+/** Fim no calendário ymd = 05:59:59 desse dia. */
+function isoEnd(ymd) {
+  return `${ymd}T05:59:59-03`;
+}
+
+/** Fim do dia operacional que começa em ymd (amanhã 05:59:59). */
+function isoEndNextDay(ymd) {
+  return isoEnd(addDaysYmd(ymd, 1));
 }
 
 module.exports = async (req, res) => {
@@ -75,16 +85,17 @@ module.exports = async (req, res) => {
       end = String(q.end);
     } else if (q.date) {
       const ymd = String(q.date).slice(0, 10);
-      start = iso0600(ymd);
-      end = iso0600(addDaysYmd(ymd, 1));
+      start = isoStart(ymd);
+      end = isoEndNextDay(ymd);
     } else if (q.startDate) {
       const s = String(q.startDate).slice(0, 10);
       const e = String(q.endDate || addDaysYmd(s, 1)).slice(0, 10);
-      start = iso0600(s);
-      end = iso0600(e);
+      start = isoStart(s);
+      // endDate = manhã do dia seguinte (calendário) → 05:59:59 desse dia
+      end = isoEnd(e);
     } else {
-      start = iso0600('2026-08-01');
-      end = iso0600('2026-08-02');
+      start = isoStart('2026-08-01');
+      end = isoEndNextDay('2026-08-01');
     }
 
     if (!sdpId || !subscriptionId || !apiKey) {

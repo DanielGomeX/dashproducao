@@ -87,7 +87,7 @@
         <input type="date" id="startDate" value="2026-08-01">
       </div>
       <div>
-        <label for="endDate">Fim (06:00 deste dia)</label>
+        <label for="endDate">Fim (05:59:59 deste dia)</label>
         <input type="date" id="endDate" value="2026-08-02">
       </div>
       <div>
@@ -120,9 +120,10 @@
       <span class="status" id="status"></span>
     </div>
     <div class="note">
-      Janela: <strong>06:00 → 06:00</strong> (offset <code>-03</code>).
-      Fixo: campo acima ou variáveis <code>FIXO_ARM_KWH</code> / <code>FIXO_TERM_KWH</code> na Vercel.
-      Líquido = <code>consumptionValue − fixo</code>.
+      Janela: <strong>06:00:00 → 05:59:59</strong> do dia seguinte (offset <code>-03</code>).
+      Ex.: 2026-08-01 = <code>…T06:00:00-03</code> até <code>2026-08-02T05:59:59-03</code>
+      (próximo dia começa em <code>2026-08-02T06:00:00-03</code> — sem gap).
+      Fixo: campo acima ou <code>FIXO_ARM_KWH</code> / <code>FIXO_TERM_KWH</code>.
     </div>
   </div>
 
@@ -146,9 +147,12 @@
 </div>
 
 <script>
-function toIso0600(dateStr){
-  // Formato igual ao PHP que funcionou: ...T06:00:00-03
+function toIsoStart(dateStr){
   return `${dateStr}T06:00:00-03`;
+}
+function toIsoEnd(dateStr){
+  // Fim do dia operacional no calendário informado (manhã do dia seguinte às 05:59:59)
+  return `${dateStr}T05:59:59-03`;
 }
 function fmt(n){
   if(n === null || n === undefined || isNaN(n)) return '—';
@@ -177,8 +181,8 @@ document.getElementById('runBtn').addEventListener('click', async () => {
 
   const body = {
     site: document.getElementById('site').value,
-    start: toIso0600(document.getElementById('startDate').value),
-    end: toIso0600(document.getElementById('endDate').value),
+    start: toIsoStart(document.getElementById('startDate').value),
+    end: toIsoEnd(document.getElementById('endDate').value),
   };
   const sdpId = document.getElementById('sdpId').value.trim();
   const subscriptionId = document.getElementById('subscriptionId').value.trim();

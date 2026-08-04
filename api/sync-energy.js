@@ -8,7 +8,9 @@
 //   GET /measurements/{sdpId}/energy/total-consumption/active?start=&end=&origin=Telemetry
 //   Resposta: { "consumptionValue": number }
 //   Headers: subscriptionId, x-way2-key
-//   Janela operacional: 06:00 → 06:00 do dia seguinte (offset -03).
+//   Janela operacional: 06:00 → 05:59:59 do dia seguinte (offset -03).
+//   Ex.: 2026-08-01 → 2026-08-01T06:00:00-03 … 2026-08-02T05:59:59-03
+//   (sem lacuna até o início do próximo dia operacional às 06:00)
 //
 // Variáveis de ambiente (Vercel) — configure as duas localidades:
 //
@@ -270,13 +272,14 @@ function addDaysYmd(ymd, days) {
 }
 
 /**
- * Dia operacional: 06:00 do dia D até 06:00 do dia D+1 (BRT -03).
- * Ex.: 2026-08-01 → 2026-08-01T06:00:00-03 … 2026-08-02T06:00:00-03
+ * Dia operacional: 06:00 do dia D até 05:59:59 do dia D+1 (BRT -03).
+ * Ex.: 2026-08-01 → 2026-08-01T06:00:00-03 … 2026-08-02T05:59:59-03
+ * O dia seguinte começa em D+1 06:00:00 — sem gap entre dias.
  */
 function dayWindowBRT(ymd) {
   return {
     start: `${ymd}T06:00:00-03`,
-    end: `${addDaysYmd(ymd, 1)}T06:00:00-03`,
+    end: `${addDaysYmd(ymd, 1)}T05:59:59-03`,
   };
 }
 
@@ -309,7 +312,7 @@ module.exports = async (req, res) => {
     const body = req.method === 'POST' ? (req.body || {}) : {};
     const targetDate = body.date || req.query?.date || yesterday();
 
-    // Dia operacional: 06:00 do dia até 06:00 do dia seguinte (BRT).
+    // Dia operacional: 06:00 → 05:59:59 do dia seguinte (BRT).
     const { start, end } = dayWindowBRT(targetDate);
 
     const sites = resolveSites();
