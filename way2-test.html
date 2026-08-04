@@ -82,11 +82,11 @@
         </select>
       </div>
       <div>
-        <label for="startDate">Início (data)</label>
+        <label for="startDate">Início (dia operacional 06:00)</label>
         <input type="date" id="startDate" value="2025-01-01">
       </div>
       <div>
-        <label for="endDate">Fim (data, exclusive no exemplo PHP)</label>
+        <label for="endDate">Fim (06:00 deste dia — exclusive)</label>
         <input type="date" id="endDate" value="2025-01-31">
       </div>
       <div>
@@ -119,8 +119,9 @@
       <span class="status" id="status"></span>
     </div>
     <div class="note">
-      Em produção as credenciais vêm das variáveis <code>WAY2_ARM_*</code> / <code>WAY2_TERM_*</code>.
-      Não coloque a key no HTML público em definitivo — use só para teste pontual via override.
+      Dia operacional: <strong>06:00 → 06:00</strong> do dia seguinte (BRT −03:00).
+      Ex.: 2026-08-01 = <code>2026-08-01T06:00:00-03:00</code> até <code>2026-08-02T06:00:00-03:00</code>.
+      Credenciais: env <code>WAY2_ARM_*</code> / <code>WAY2_TERM_*</code> (override só para teste).
     </div>
   </div>
 
@@ -143,8 +144,8 @@
 </div>
 
 <script>
-function toIsoStart(dateStr){
-  return `${dateStr}T00:00:00-03:00`;
+function toIso0600(dateStr){
+  return `${dateStr}T06:00:00-03:00`;
 }
 function fmt(n){
   if(n === null || n === undefined || isNaN(n)) return '—';
@@ -173,8 +174,8 @@ document.getElementById('runBtn').addEventListener('click', async () => {
 
   const body = {
     site: document.getElementById('site').value,
-    start: toIsoStart(document.getElementById('startDate').value),
-    end: toIsoStart(document.getElementById('endDate').value),
+    start: toIso0600(document.getElementById('startDate').value),
+    end: toIso0600(document.getElementById('endDate').value),
     pageSize: Number(document.getElementById('pageSize').value) || 500,
     pageIndex: 1,
   };

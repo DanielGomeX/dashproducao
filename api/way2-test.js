@@ -3,8 +3,9 @@
 //
 // GET/POST /api/way2-test
 //   site=arm|term          (usa env WAY2_*_SDP_ID + SUBSCRIPTION_ID + KEY)
-//   start=ISO              (ex.: 2025-01-01T00:00:00-03:00)
-//   end=ISO
+//   start=ISO / end=ISO   (opcional; se omitidos e date=YYYY-MM-DD,
+//                          usa janela operacional 06:00→06:00 do dia seguinte)
+//   date=YYYY-MM-DD       (atalho para um dia operacional)
 //   sdpId, subscriptionId, apiKey  (opcionais — override manual para teste)
 //
 // Resposta: { ok, url, status, count, totalKwh, fixoKwh, netKwh, raw }
@@ -38,8 +39,36 @@ module.exports = async (req, res) => {
     const sdpId = String(q.sdpId || defaults.sdpId || '').trim();
     const subscriptionId = String(q.subscriptionId || defaults.subscriptionId || '').trim();
     const apiKey = String(q.apiKey || defaults.apiKey || '').trim();
-    const start = String(q.start || '2025-01-01T00:00:00-03:00');
-    const end = String(q.end || '2025-01-31T00:00:00-03:00');
+
+    // Janela operacional: 06:00 do dia D até 06:00 do dia D+1 (BRT).
+    // - date=YYYY-MM-DD → um dia
+    // - startDate/endDate (YYYY-MM-DD) → startDate 06:00 até endDate 06:00
+    // - start/end ISO explícitos têm prioridade
+    function addDaysYmd(ymd, days) {
+      const [y, m, d] = ymd.split('-').map(Number);
+      const dt = new Date(Date.UTC(y, m - 1, d + days));
+      return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+    }
+
+    let start;
+    let end;
+    if (q.start && q.end) {
+      start = String(q.start);
+      end = String(q.end);
+    } else if (q.date) {
+      const ymd = String(q.date).slice(0, 10);
+      start = `${ymd}T06:00:00-03:00`;
+      end = `${addDaysYmd(ymd, 1)}T06:00:00-03:00`;
+    } else if (q.startDate) {
+      const s = String(q.startDate).slice(0, 10);
+      const e = String(q.endDate || addDaysYmd(s, 1)).slice(0, 10);
+      start = `${s}T06:00:00-03:00`;
+      end = `${e}T06:00:00-03:00`;
+    } else {
+      start = '2025-01-01T06:00:00-03:00';
+      end = '2025-01-31T06:00:00-03:00';
+    }
+
     const pageSize = Number(q.pageSize) || 500;
     const pageIndex = Number(q.pageIndex) || 1;
 

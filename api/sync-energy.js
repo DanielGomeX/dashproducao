@@ -250,6 +250,24 @@ function yesterday() {
   return d.toISOString().slice(0, 10);
 }
 
+/** Soma dias a uma data YYYY-MM-DD (calendário civil, UTC). */
+function addDaysYmd(ymd, days) {
+  const [y, m, d] = ymd.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + days));
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`;
+}
+
+/**
+ * Dia operacional: 06:00 do dia D até 06:00 do dia D+1 (BRT -03:00).
+ * Ex.: 2026-08-01 → 2026-08-01T06:00:00-03:00 … 2026-08-02T06:00:00-03:00
+ */
+function dayWindowBRT(ymd) {
+  return {
+    start: `${ymd}T06:00:00-03:00`,
+    end: `${addDaysYmd(ymd, 1)}T06:00:00-03:00`,
+  };
+}
+
 function fixedKwhForSite(siteName) {
   const raw =
     siteName === 'arm'
@@ -278,11 +296,8 @@ module.exports = async (req, res) => {
     const body = req.method === 'POST' ? (req.body || {}) : {};
     const targetDate = body.date || req.query?.date || yesterday();
 
-    const start = `${targetDate}T00:00:00-03:00`;
-    const nextDay = new Date(new Date(`${targetDate}T00:00:00-03:00`).getTime() + 24 * 60 * 60 * 1000)
-      .toISOString().slice(0, 10);
-    const end = `${nextDay}T00:00:00-03:00`;
-   //const end = `${targetDate}T23:59:59-03:00`;
+    // Dia operacional: 06:00 do dia até 06:00 do dia seguinte (BRT).
+    const { start, end } = dayWindowBRT(targetDate);
 
     const sites = resolveSites();
     if (!sites.length) {
@@ -354,6 +369,7 @@ module.exports = async (req, res) => {
     res.status(200).json({
       ok: true,
       date: targetDate,
+      window: { start, end },
       ...results,
       debug,
       ...(errors.length ? { partialErrors: errors } : {}),
